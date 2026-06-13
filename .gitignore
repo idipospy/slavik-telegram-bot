@@ -1,0 +1,10 @@
+# Файлы окружения и секреты
+.env
+.venv
+venv/
+__pycache__/
+*.pyc
+*.log
+.DS_Store
+.idea/
+.vscode/
