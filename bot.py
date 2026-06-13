@@ -19,12 +19,12 @@ if not TELEGRAM_TOKEN or not GEMINI_API_KEY:
 
 # Настройка Gemini
 genai.configure(api_key=GEMINI_API_KEY)
-MODEL_NAME = "gemini-2.0-flash"  # можно заменить на gemini-1.5-pro или gemini-1.5-flash
+MODEL_NAME = "gemini-2.0-flash"
 model = genai.GenerativeModel(MODEL_NAME)
 
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
 
-# Вероятность отправки стикера (5%)
+# Вероятность отправки стикера дополнительно к тексту (5%)
 STICKER_CHANCE = 0.05
 
 # ========== ЛИЧНОСТЬ ==========
@@ -44,13 +44,40 @@ print(f"✅ Личность загружена из {PERSONALITY_FILE}")
 # ========== ХРАНИЛИЩЕ ИСТОРИЙ ==========
 user_histories = {}
 
-# ========== СПИСОК СТИКЕРОВ (ВАШИ ID) ==========
-STICKERS = [  # полный список оставляем как есть, он очень длинный, для краткости оставлю ссылку
+# ========== СПИСОК СТИКЕРОВ (ваши ID) ==========
+STICKERS = [
     "CAACAgIAAxkBAAIsoGotFLzIjtQ4i9t2WEQebPAXC61_AALFmwACYNzRS9UuG2zTQo7XPAQ",
-    # ... здесь все ваши 30+ стикеров (я не стал копировать их для краткости, но вы вставите свои)
-    # Убедитесь, что список STICKERS полностью скопирован из вашего предыдущего кода.
+    "CAACAgIAAxkBAAIsomotFMIm9LqoEVUtVAaVe8HsaAF-AAJYRQACXBlISLj-sZAiG5BxPAQ",
+    "CAACAgIAAxUAAWotFVJeDGSKQK6-bB25X7UlOIClAALkiAACgsbRS5wOg98jieXfPAQ",
+    "CAACAgIAAxUAAWotFVLKsTVh8WA5X3W6fGcbVcU4AAJlbQACsIJoSAFi7Z6nGPaJPAQ",
+    "CAACAgIAAxUAAWotFVJwPdGaSbjpfZqItTHdpROaAALTiwAC4fS4S813QUtk_b4WPAQ",
+    "CAACAgIAAxUAAWotFVIDpX1eVJMdTJ4WE15WruZ1AAIXcwACSGcBSQGmZ5xGtKMfPAQ",
+    "CAACAgIAAxUAAWotFVKYvp-GW9SEnGLxTrai7p3LAAJ1SAACfi8YSB6tzDLQ03r7PAQ",
+    "CAACAgIAAxUAAWotFVLaTFaNYKD85o0AAQbLVB9Z0gACcHMAApkeQEmJvhl8s1i0IjwE",
+    "CAACAgIAAxUAAWotFVKelziTn7FrCPGmsinkzTRlAAK6hgACRm_RSo-NSwslQDgePAQ",
+    "CAACAgIAAxUAAWotFVIqz7AmOIj7av9Fpi4pQ_klAAJNhQACWJYJS7Uuu9pMjJ_YPAQ",
+    "CAACAgIAAxUAAWotFVJwScD0_vGegQABxolBBbEOhAAC6kQAAmo9GEjORn6qgYEIZTwE",
+    "CAACAgIAAxUAAWotFVLnQjigN19YxQtef0ApAAHizQACclAAAsSmGUhlKow7bD_x2DwE",
+    "CAACAgIAAxUAAWotFVIdX3SwyZ1q6ZlqdnnD6nglAAJRgAACC5ZBS2B_xx-QUkhjPAQ",
+    "CAACAgIAAxUAAWotFVIYiydayte3_roTFhkwI5cnAALjhwACijJYS5x_5zPckadSPAQ",
+    "CAACAgIAAxUAAWotFVKqU33BGiyr6RsIRCI-W4f5AAKQhwACChOwS6GUYXM_MJsgPAQ",
+    "CAACAgIAAxUAAWotFVI6Iyv8oRuwI83tHuB73VaiAAKFSAACFioYSDoherJoG2J1PAQ",
+    "CAACAgIAAxUAAWotFVKKJJ-QnAr3iRtOwPhEVKwMAAI0SQACEMAZSBuLm2-_1SK2PAQ",
+    "CAACAgIAAxUAAWotFVIM-f2ZkD9gVhgF9eOokD5fAALphgACZR5JSNF70QteHtsOPAQ",
+    "CAACAgIAAxUAAWotFVISAioK1RhJEVgMC-boAjdvAAJ6kwACy7PYSIVu7FyylZCVPAQ",
+    "CAACAgIAAxUAAWotFVL2vQI2tnS1epwfavCUh3mTAAJplAAC4zvZSWNUnbla9dA3PAQ",
+    "CAACAgIAAxUAAWotFVJnFvQ0cyFWTVBCNrfD3phuAAL1fwACKXvpSffIurdC9bhrPAQ",
+    "CAACAgIAAxUAAWotFVKrVxCPDZtzYfhTwN8FEj27AAI4hQACHAm4Sm8KlPo3JvcpPAQ",
+    "CAACAgIAAxUAAWotFVKsMFy7ej-7ewZ34w4x4w7tAALboAACncZoShgrsL0h_MpPPAQ",
+    "CAACAgIAAxUAAWotFVJuAAFlQV6QJIbZ_4zIdfBsiwACKY8AAv8eEEutzGJbPoFk2TwE",
+    "CAACAgIAAxUAAWotFVIujwokua0SzvK147nn4kcVAALaowAC7xBIS11Rx7OzNKFnPAQ",
+    "CAACAgIAAxUAAWotFVIMkVadXYACWyMler8cHhUnAAJangACu-VJS13Spp8fGtpDPAQ",
+    "CAACAgIAAxUAAWotFVLyYXdZZLLngDHMSctlPcOXAAJdogACYUqAS9ymhAVSwKNXPAQ",
+    "CAACAgIAAxUAAWotFVKmHl2T4hhKNCVEyB04nFZeAAIKmwACvn_gS0A4SLjvGsw8PAQ",
+    "CAACAgIAAxUAAWotFVJSNCgMUcev0yeYRYxDWisyAAK9owACih1xSBo7ETg_Pp3-PAQ",
+    "CAACAgIAAxUAAWotFVK-blslX77LWErvr4NXyfI9AAJ0ngACsdp5SAfEXKXbWWYpPAQ",
+    "CAACAgIAAxUAAWotFVKMA4HWO_gzb3u51yILInyPAAJBnwAC61nASO9JO701qVABPAQ"
 ]
-# Если вы хотите, чтобы стикеры работали, вставьте сюда все 32 ID из вашего сообщения.
 
 # ========== КОМАНДЫ ==========
 @bot.message_handler(commands=['start'])
@@ -100,16 +127,16 @@ def handle_all_messages(message: Message):
         if not clean_text:
             clean_text = "эй"
         process_message(message, clean_text)
-    # иначе игнорируем
 
 def process_message(message: Message, user_text: str):
-    # Редко отправляем стикер вместе с ответом
+    # С вероятностью STICKER_CHANCE отправляем стикер (дополнительно к тексту)
     if random.random() < STICKER_CHANCE and STICKERS:
         try:
             bot.send_sticker(message.chat.id, random.choice(STICKERS))
         except Exception as e:
             print(f"Ошибка отправки стикера: {e}")
 
+    # Всегда отправляем текстовый ответ через Gemini
     answer_user(message, user_text)
 
 def answer_user(message: Message, user_text: str):
@@ -119,7 +146,7 @@ def answer_user(message: Message, user_text: str):
     if user_id not in user_histories:
         user_histories[user_id] = []
 
-    # Склеиваем промпт с личностью и историей (костыль для Gemini)
+    # Склеиваем промпт (личность + история)
     full_prompt = PERSONALITY + "\n\nИстория диалога:\n"
     for msg in user_histories[user_id]:
         if msg["role"] == "user":
@@ -134,7 +161,7 @@ def answer_user(message: Message, user_text: str):
         if not ai_response:
             ai_response = "Чё молчишь? Я не понял, дебил."
 
-        # Сохраняем историю (ручное управление)
+        # Сохраняем историю
         user_histories[user_id].append({"role": "user", "parts": [user_text]})
         user_histories[user_id].append({"role": "model", "parts": [ai_response]})
         if len(user_histories[user_id]) > 10:
