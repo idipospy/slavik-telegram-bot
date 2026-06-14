@@ -1,27 +1,25 @@
 import telebot
 import os
-import time
 import random
 from telebot.types import Message
 from flask import Flask
 from threading import Thread
-import google.generativeai as genai
+from groq import Groq
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# ========== НАСТРОЙКИ (без секретов) ==========
+# ========== НАСТРОЙКИ ==========
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 
-if not TELEGRAM_TOKEN or not GEMINI_API_KEY:
-    raise ValueError("Не найдены переменные окружения TELEGRAM_TOKEN или GEMINI_API_KEY")
+if not TELEGRAM_TOKEN or not GROQ_API_KEY:
+    raise ValueError("Не найдены TELEGRAM_TOKEN или GROQ_API_KEY")
 
-# Настройка Gemini
-genai.configure(api_key=GEMINI_API_KEY)
-MODEL_NAME = "gemini-2.0-flash"
-model = genai.GenerativeModel(MODEL_NAME)
+# Модель: мощная 70B с отличной памятью
+MODEL_NAME = "llama-3.3-70b-versatile"
 
+client = Groq(api_key=GROQ_API_KEY)
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
 
 # Вероятность отправки стикера дополнительно к тексту (5%)
@@ -44,7 +42,7 @@ print(f"✅ Личность загружена из {PERSONALITY_FILE}")
 # ========== ХРАНИЛИЩЕ ИСТОРИЙ ==========
 user_histories = {}
 
-# ========== СПИСОК СТИКЕРОВ (ваши ID) ==========
+# ========== ПОЛНЫЙ СПИСОК СТИКЕРОВ (31 шт) ==========
 STICKERS = [
     "CAACAgIAAxkBAAIsoGotFLzIjtQ4i9t2WEQebPAXC61_AALFmwACYNzRS9UuG2zTQo7XPAQ",
     "CAACAgIAAxkBAAIsomotFMIm9LqoEVUtVAaVe8HsaAF-AAJYRQACXBlISLj-sZAiG5BxPAQ",
@@ -83,14 +81,15 @@ STICKERS = [
 @bot.message_handler(commands=['start'])
 def cmd_start(message: Message):
     user_id = message.chat.id
-    user_histories[user_id] = []
+    if user_id in user_histories:
+        del user_histories[user_id]
     bot.reply_to(message, "Че надо? Пиши давай, не тяни.")
 
 @bot.message_handler(commands=['reset'])
 def cmd_reset(message: Message):
     user_id = message.chat.id
     if user_id in user_histories:
-        user_histories[user_id] = []
+        del user_histories[user_id]
     bot.reply_to(message, "Историю очистил, мудила. Теперь начинай сначала.")
 
 @bot.message_handler(commands=['sticker'])
@@ -136,9 +135,10 @@ def process_message(message: Message, user_text: str):
         except Exception as e:
             print(f"Ошибка отправки стикера: {e}")
 
-    # Всегда отправляем текстовый ответ через Gemini
+    # Всегда отправляем текстовый ответ через Groq
     answer_user(message, user_text)
 
+# ========== ОТВЕТ ЧЕРЕЗ GROQ С ПАМЯТЬЮ ==========
 def answer_user(message: Message, user_text: str):
     user_id = message.chat.id
     bot.send_chat_action(user_id, "typing")
@@ -146,31 +146,36 @@ def answer_user(message: Message, user_text: str):
     if user_id not in user_histories:
         user_histories[user_id] = []
 
-    # Склеиваем промпт (личность + история)
-    full_prompt = PERSONALITY + "\n\nИстория диалога:\n"
-    for msg in user_histories[user_id]:
-        if msg["role"] == "user":
-            full_prompt += f"Пользователь: {msg['parts'][0]}\n"
-        else:
-            full_prompt += f"Бот: {msg['parts'][0]}\n"
-    full_prompt += f"Пользователь: {user_text}\nБот:"
+    # Добавляем новое сообщение пользователя
+    user_histories[user_id].append({"role": "user", "content": user_text})
+
+    # Формируем полный массив: system + вся история (последние 10 сообщений)
+    messages = [{"role": "system", "content": PERSONALITY}]
+    messages.extend(user_histories[user_id])
 
     try:
-        response = model.generate_content(full_prompt)
-        ai_response = response.text.strip()
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=messages,
+            temperature=0.9,
+            max_tokens=500
+        )
+        ai_response = response.choices[0].message.content.strip()
         if not ai_response:
             ai_response = "Чё молчишь? Я не понял, дебил."
 
-        # Сохраняем историю
-        user_histories[user_id].append({"role": "user", "parts": [user_text]})
-        user_histories[user_id].append({"role": "model", "parts": [ai_response]})
+        # Сохраняем ответ ассистента
+        user_histories[user_id].append({"role": "assistant", "content": ai_response})
+
+        # Ограничиваем историю последними 10 сообщениями
         if len(user_histories[user_id]) > 10:
             user_histories[user_id] = user_histories[user_id][-10:]
 
         bot.reply_to(message, ai_response[:500])
-
     except Exception as e:
-        print(f"❌ Ошибка Gemini: {e}")
+        print(f"❌ Ошибка Groq: {e}")
+        if user_id in user_histories:
+            del user_histories[user_id]
         bot.reply_to(message, "Ошибка. /reset попробуй, чмо.")
 
 # ==================== ВЕБ-СЕРВЕР ДЛЯ KEEP-ALIVE ====================
@@ -191,8 +196,9 @@ def keep_alive():
 # ========== ЗАПУСК ==========
 if __name__ == "__main__":
     keep_alive()
-    print("🤖 Бот с Gemini (gemini-2.0-flash) запущен!")
+    print("🤖 Бот с Groq запущен!")
     print(f"🎲 Вероятность стикера: {STICKER_CHANCE*100}%")
+    print(f"🧠 Модель: {MODEL_NAME}")
     print("💬 В группах отвечает только на упоминания @slovik568_bot")
     print(f"📦 Загружено стикеров: {len(STICKERS)}")
     try:
