@@ -1,6 +1,7 @@
 import telebot
 import os
 import random
+import traceback
 from telebot.types import Message
 from flask import Flask
 from threading import Thread
@@ -16,14 +17,11 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 if not TELEGRAM_TOKEN or not GROQ_API_KEY:
     raise ValueError("Не найдены TELEGRAM_TOKEN или GROQ_API_KEY")
 
-# Модель: мощная 70B с отличной памятью
 MODEL_NAME = "llama-3.3-70b-versatile"
-
 client = Groq(api_key=GROQ_API_KEY)
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
 
-# Вероятность отправки стикера дополнительно к тексту (15%)
-STICKER_CHANCE = 0.15
+STICKER_CHANCE = 0.15  # 15%
 
 # ========== ЛИЧНОСТЬ ==========
 PERSONALITY_FILE = "personality.txt"
@@ -34,15 +32,15 @@ def load_personality() -> str:
             content = f.read().strip()
             if content:
                 return content
-    return "Ты — Славик. ."
+    return "Ты — Славик. Отвечай агрессивно и с матом."
 
 PERSONALITY = load_personality()
 print(f"✅ Личность загружена из {PERSONALITY_FILE}")
 
 # ========== ХРАНИЛИЩЕ ИСТОРИЙ ==========
-user_histories = {}
+user_histories = {}  # { user_id: list of {"role": "user"/"assistant", "content": "..."} }
 
-# ========== ПОЛНЫЙ СПИСОК СТИКЕРОВ (31 шт) ==========
+# ========== ВАШ ПОЛНЫЙ СПИСОК СТИКЕРОВ (31 шт) ==========
 STICKERS = [
     "CAACAgIAAxkBAAIsoGotFLzIjtQ4i9t2WEQebPAXC61_AALFmwACYNzRS9UuG2zTQo7XPAQ",
     "CAACAgIAAxkBAAIsomotFMIm9LqoEVUtVAaVe8HsaAF-AAJYRQACXBlISLj-sZAiG5BxPAQ",
@@ -81,16 +79,15 @@ STICKERS = [
 @bot.message_handler(commands=['start'])
 def cmd_start(message: Message):
     user_id = message.chat.id
-    if user_id in user_histories:
-        del user_histories[user_id]
+    user_histories[user_id] = []
     bot.reply_to(message, "Че надо? Пиши давай, не тяни.")
 
 @bot.message_handler(commands=['reset'])
 def cmd_reset(message: Message):
     user_id = message.chat.id
     if user_id in user_histories:
-        del user_histories[user_id]
-    bot.reply_to(message, "Историю очистил. Теперь начинай сначала.")
+        user_histories[user_id] = []
+    bot.reply_to(message, "Историю очистил, мудила. Теперь начинай сначала.")
 
 @bot.message_handler(commands=['sticker'])
 def send_random_sticker(message: Message):
@@ -128,14 +125,14 @@ def handle_all_messages(message: Message):
         process_message(message, clean_text)
 
 def process_message(message: Message, user_text: str):
-    # С вероятностью 15% отправляем стикер (дополнительно к тексту)
+    # Стикер с вероятностью 15%
     if random.random() < STICKER_CHANCE and STICKERS:
         try:
             bot.send_sticker(message.chat.id, random.choice(STICKERS))
         except Exception as e:
             print(f"Ошибка отправки стикера: {e}")
 
-    # Всегда отправляем текстовый ответ через Groq
+    # Всегда отправляем текстовый ответ
     answer_user(message, user_text)
 
 # ========== ОТВЕТ ЧЕРЕЗ GROQ С ПАМЯТЬЮ ==========
@@ -143,13 +140,18 @@ def answer_user(message: Message, user_text: str):
     user_id = message.chat.id
     bot.send_chat_action(user_id, "typing")
 
+    # Инициализация истории, если её нет
     if user_id not in user_histories:
         user_histories[user_id] = []
 
-    # Добавляем новое сообщение пользователя
+    # Добавляем сообщение пользователя
     user_histories[user_id].append({"role": "user", "content": user_text})
 
-    # Формируем полный массив: system + вся история (последние 10 сообщений)
+    # Ограничиваем историю последними 10 сообщениями (чтобы не перегружать API)
+    if len(user_histories[user_id]) > 10:
+        user_histories[user_id] = user_histories[user_id][-10:]
+
+    # Формируем запрос: system + вся история
     messages = [{"role": "system", "content": PERSONALITY}]
     messages.extend(user_histories[user_id])
 
@@ -167,15 +169,26 @@ def answer_user(message: Message, user_text: str):
         # Сохраняем ответ ассистента
         user_histories[user_id].append({"role": "assistant", "content": ai_response})
 
-        # Ограничиваем историю последними 10 сообщениями
+        # Снова обрезаем до 10 (чтобы не хранить лишнего)
         if len(user_histories[user_id]) > 10:
             user_histories[user_id] = user_histories[user_id][-10:]
 
         bot.reply_to(message, ai_response[:500])
+
     except Exception as e:
-        print(f"❌ Ошибка Groq: {e}")
-        if user_id in user_histories:
-            del user_histories[user_id]
+        # Подробная информация об ошибке в лог
+        print("=" * 50)
+        print(f"❌ Ошибка Groq для пользователя {user_id}:")
+        print(f"Текст ошибки: {str(e)}")
+        print("Трассировка:")
+        traceback.print_exc()
+        print("История сообщений (последние 5):")
+        for msg in user_histories[user_id][-5:]:
+            print(f"  {msg['role']}: {msg['content'][:100]}")
+        print("=" * 50)
+
+        # Очищаем историю для этого пользователя, чтобы следующий запрос мог начаться заново
+        user_histories[user_id] = []
         bot.reply_to(message, "Ошибка. /reset попробуй, чмо.")
 
 # ==================== ВЕБ-СЕРВЕР ДЛЯ KEEP-ALIVE ====================
@@ -195,13 +208,13 @@ def keep_alive():
 
 # ========== ЗАПУСК ==========
 if __name__ == "__main__":
-    # ---- Сброс вебхука для предотвращения ошибки 409 ----
+    # Сброс вебхука
     try:
         bot.delete_webhook()
         print("✅ Вебхук успешно сброшен перед запуском.")
     except Exception as e:
         print(f"⚠️ Не удалось сбросить вебхук: {e}")
-    # ----------------------------------------------------
+
     keep_alive()
     print("🤖 Бот с Groq запущен!")
     print(f"🎲 Вероятность стикера: {STICKER_CHANCE*100}%")
