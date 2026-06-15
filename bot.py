@@ -23,7 +23,7 @@ client = Groq(api_key=GROQ_API_KEY)
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
 
 # Вероятность отправки стикера дополнительно к тексту (5%)
-STICKER_CHANCE = 0.05
+STICKER_CHANCE = 0.15
 
 # ========== ЛИЧНОСТЬ ==========
 PERSONALITY_FILE = "personality.txt"
