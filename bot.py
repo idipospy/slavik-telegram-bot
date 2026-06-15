@@ -22,7 +22,7 @@ MODEL_NAME = "llama-3.3-70b-versatile"
 client = Groq(api_key=GROQ_API_KEY)
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
 
-# Вероятность отправки стикера дополнительно к тексту (5%)
+# Вероятность отправки стикера дополнительно к тексту (15%)
 STICKER_CHANCE = 0.15
 
 # ========== ЛИЧНОСТЬ ==========
@@ -34,7 +34,7 @@ def load_personality() -> str:
             content = f.read().strip()
             if content:
                 return content
-    return "Ты — Славик. Отвечай агрессивно и с матом."
+    return "Ты — Славик. ."
 
 PERSONALITY = load_personality()
 print(f"✅ Личность загружена из {PERSONALITY_FILE}")
@@ -90,7 +90,7 @@ def cmd_reset(message: Message):
     user_id = message.chat.id
     if user_id in user_histories:
         del user_histories[user_id]
-    bot.reply_to(message, "Историю очистил, мудила. Теперь начинай сначала.")
+    bot.reply_to(message, "Историю очистил. Теперь начинай сначала.")
 
 @bot.message_handler(commands=['sticker'])
 def send_random_sticker(message: Message):
@@ -128,7 +128,7 @@ def handle_all_messages(message: Message):
         process_message(message, clean_text)
 
 def process_message(message: Message, user_text: str):
-    # С вероятностью STICKER_CHANCE отправляем стикер (дополнительно к тексту)
+    # С вероятностью 15% отправляем стикер (дополнительно к тексту)
     if random.random() < STICKER_CHANCE and STICKERS:
         try:
             bot.send_sticker(message.chat.id, random.choice(STICKERS))
@@ -195,6 +195,13 @@ def keep_alive():
 
 # ========== ЗАПУСК ==========
 if __name__ == "__main__":
+    # ---- Сброс вебхука для предотвращения ошибки 409 ----
+    try:
+        bot.delete_webhook()
+        print("✅ Вебхук успешно сброшен перед запуском.")
+    except Exception as e:
+        print(f"⚠️ Не удалось сбросить вебхук: {e}")
+    # ----------------------------------------------------
     keep_alive()
     print("🤖 Бот с Groq запущен!")
     print(f"🎲 Вероятность стикера: {STICKER_CHANCE*100}%")
